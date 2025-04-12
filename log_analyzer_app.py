@@ -235,7 +235,8 @@ def run_streamlit_app():
         uploaded_files = st.file_uploader(
             "Choose log files",
             accept_multiple_files=True,
-            type=['log', 'txt', None] # Allow .log, .txt, or any extension
+            # FIX: Removed None from the type list
+            type=['log', 'txt']
         )
 
         # Log Levels Selection
@@ -264,52 +265,44 @@ def run_streamlit_app():
 
     if analyze_button and uploaded_files:
         all_results = []
-        temp_dir = tempfile.mkdtemp() # Create a temporary directory
-        file_details = [] # Store tuples of (temp_path, original_name)
+        # Use a temporary directory context manager for cleaner handling
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_details = [] # Store tuples of (temp_path, original_name)
 
-        try:
-            # Save uploaded files temporarily
-            for uploaded_file in uploaded_files:
-                temp_file_path = os.path.join(temp_dir, uploaded_file.name)
-                with open(temp_file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                file_details.append({'path': temp_file_path, 'name': uploaded_file.name})
+            try:
+                # Save uploaded files temporarily
+                for uploaded_file in uploaded_files:
+                    # Sanitize filename slightly to avoid issues, though tempfile handles uniqueness
+                    safe_filename = os.path.basename(uploaded_file.name)
+                    temp_file_path = os.path.join(temp_dir, safe_filename)
+                    with open(temp_file_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    file_details.append({'path': temp_file_path, 'name': uploaded_file.name})
 
-            # Analyze each saved file
-            with st.spinner(f"Analyzing {len(file_details)} file(s)..."):
-                for file_info in file_details:
-                    st.write(f"Processing: {file_info['name']}...") # Show progress
-                    # Pass original name for better reporting
-                    analysis_result = analyze_log_file(
-                        file_info['path'],
-                        custom_patterns,
-                        levels_to_count
-                    )
-                    if analysis_result:
-                         analysis_result['original_file_name'] = file_info['name'] # Add original name to results
-                         all_results.append(analysis_result)
-
-            # Generate and store the report
-            st.session_state.report = generate_report(all_results)
-            st.session_state.analyzed_files_count = len(all_results)
-
-
-        except Exception as e:
-            st.error(f"An error occurred during the analysis process: {e}")
-            st.session_state.report = "Analysis failed due to an error."
-            st.session_state.analyzed_files_count = 0
-        finally:
-            # Clean up temporary files
-            if os.path.exists(temp_dir):
-                try:
-                    # Basic cleanup, might need shutil.rmtree for robustness
+                # Analyze each saved file
+                with st.spinner(f"Analyzing {len(file_details)} file(s)..."):
                     for file_info in file_details:
-                        if os.path.exists(file_info['path']):
-                            os.remove(file_info['path'])
-                    os.rmdir(temp_dir)
-                except OSError as e:
-                     st.warning(f"Could not fully clean up temporary directory {temp_dir}: {e}")
+                        st.write(f"Processing: {file_info['name']}...") # Show progress
+                        # Pass original name for better reporting
+                        analysis_result = analyze_log_file(
+                            file_info['path'],
+                            custom_patterns,
+                            levels_to_count
+                        )
+                        if analysis_result:
+                             analysis_result['original_file_name'] = file_info['name'] # Add original name to results
+                             all_results.append(analysis_result)
 
+                # Generate and store the report
+                st.session_state.report = generate_report(all_results)
+                st.session_state.analyzed_files_count = len(all_results)
+
+
+            except Exception as e:
+                st.error(f"An error occurred during the analysis process: {e}")
+                st.session_state.report = "Analysis failed due to an error."
+                st.session_state.analyzed_files_count = 0
+            # No finally needed for cleanup, TemporaryDirectory handles it
 
     # Display the report if available
     if st.session_state.report:
